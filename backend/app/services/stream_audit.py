@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.lineage import lineage_service
 from app.store import store
 
 
@@ -64,6 +65,18 @@ class StreamAuditService(BaseModuleService):
         return {"source": source, "checkpoint": has_checkpoint, "watermark": has_watermark,
                 "payload": has_payload, "sink": has_sink,
                 "complete": has_checkpoint and has_watermark and has_payload and has_sink}
+
+    def query_processing_lineage(self, criteria: dict[str, str]) -> dict[str, Any]:
+        """按确切来源、批次、分区和时间窗口查询逐段血缘明细。
+
+        审计模块的血缘入口：筛选条件不允许模糊来源名称，orders-us 与
+        orders-eu 互相不能补全对方的血缘，缺证分段原样保留在结果里。
+        """
+        return lineage_service.query_lineage(criteria)
+
+    def locate_processing_gaps(self, criteria: dict[str, str]) -> dict[str, Any]:
+        """定位处理缺口：只返回证据缺失或被撤销的分段，缺口分段仍可逐段核对。"""
+        return lineage_service.list_gap_segments(criteria)
 
     def trigger_alarm_on_deviation(self, entry_id: int) -> str | None:
         """偏差超标时触发吞吐量告警。"""

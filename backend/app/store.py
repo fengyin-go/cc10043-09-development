@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.lineage_seed import install_lineage_seed
 from app.seed import SEED_ROWS
 
 
@@ -14,6 +15,8 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 血缘场景数据（orders-us / orders-eu 的确切来源、批次、分区证据）。
+        install_lineage_seed(self._tables)
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)

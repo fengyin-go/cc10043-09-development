@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.lineage import lineage_service
 from app.store import store
 
 
@@ -108,3 +109,39 @@ class BatchReplayService(BaseModuleService):
             "status": "正常", "pending": True, "abnormal": False,
         })
         return {"ok": True, "message": "回放完成已审计"}
+
+    # ---- 业务扩展：基于血缘证据的回放预检与派发 ----
+
+    def precheck_with_lineage(self, criteria: dict[str, str]) -> dict[str, Any]:
+        """回放预检：从血缘明细取得确切数据范围，证据不齐的分段不得进入回放。"""
+        return lineage_service.precheck_replay(criteria)
+
+    def dispatch_with_evidence(self, criteria: dict[str, str]) -> dict[str, Any]:
+        """派发实际消息：以派发瞬间的归属证据为准重新校验。
+
+        预检勾选不代表派发许可；上游在预检后撤销落地证明时，派发会拦截
+        对应分段，目的端不会收到证据失效的消息，缺证分段仍保留在血缘明细里。
+        """
+        result = lineage_service.dispatch_replay(criteria)
+        if not result.get("ok") and not result.get("delivered"):
+            result["status"] = "回放中断"
+            return result
+        delivered = result.get("delivered", [])
+        if delivered:
+            replay_rows = store.rows(self.MODULE)
+            rid = max((int(r.get("id", 0)) for r in replay_rows), default=0) + 1
+            exact_range = result.get("delivery_range", {})
+            replay_rows.append({
+                "id": rid,
+                "回放范围": f"{exact_range.get('来源名称', '')}/"
+                            f"{exact_range.get('接入批次', '')}/"
+                            f"{exact_range.get('分区', '')} 共{len(delivered)}条",
+                "开始时间": exact_range.get("起始时间", ""),
+                "结束时间": exact_range.get("结束时间", ""),
+                "目标Topic": exact_range.get("来源名称", ""),
+                "回放速率": "100",
+                "status": "已完成", "pending": False, "abnormal": False,
+            })
+            result["replay_id"] = rid
+        result["status"] = "已完成" if not result.get("refused") else "回放中断"
+        return result

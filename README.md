@@ -79,5 +79,27 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 血缘查询与回放演练（流数据处理审计）
+
+审计模块下挂载「血缘查询与回放演练」面板（`frontend/src/views/LineagePanel.vue`），
+后端领域逻辑在 `app/services/lineage.py`，场景数据在 `app/lineage_seed.py`
+（来源 `orders-us` / `orders-eu`，批次 `B-20261120-01`，分区 `p0` / `p1`）。
+
+一次查询必须同时给出确切来源、接入批次、分区和起止时间，四要素全部精确匹配，
+两个来源互相不能补全对方的血缘；缺证分段保留在明细里，归属冲突载荷只标注、
+禁止作为回放输入；回放派发瞬间重新校验证据，预检后被撤销的证明会拦截投递。
+
+| 接口 | 作用 |
+| --- | --- |
+| `POST /api/lineage/query` | 四要素逐段血缘明细（检查点、落地分区、归属载荷） |
+| `POST /api/lineage/gaps` | 只定位缺证/撤销分段 |
+| `POST /api/lineage/replay/precheck` | 回放预检，输出候选消息与拦截分段 |
+| `POST /api/lineage/replay/dispatch` | 派发实际消息，二次校验证据有效性 |
+| `POST /api/lineage/evidence/revoke` | 模拟上游撤销落地证明 |
+| `POST /api/lineage/evidence/supplement` | 为缺证分段补齐落地分区 |
+
+演练脚本：`backend/tests/scenario_drill.py`（领域层 35 项断言）、
+`backend/tests/http_drill.py`（HTTP 端到端，需先启动后端）。
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA
